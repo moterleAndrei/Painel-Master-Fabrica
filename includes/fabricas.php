@@ -41,6 +41,16 @@ function painel_master_buscar_info_fabrica($fabrica) {
         set_transient($cache_key, $ret, 60);
         return $ret;
     }
+    // Corrige campo 'vendas' para 'valor' em mais_vendidos e mais_acessados
+    foreach (['mais_vendidos', 'mais_acessados'] as $key) {
+        if (isset($body[$key]) && is_array($body[$key])) {
+            foreach ($body[$key] as $i => $prod) {
+                if (isset($prod['vendas'])) {
+                    $body[$key][$i]['valor'] = $prod['vendas'];
+                }
+            }
+        }
+    }
     set_transient($cache_key, $body, 300);
     return $body;
 }
@@ -81,6 +91,10 @@ function painel_master_render_produtos($produtos, $titulo) {
  * Renderiza o status de uma fábrica (ativos, inativos, desligados)
  */
 function painel_master_render_status($fab) {
+    // Só mostra status se pelo menos um campo for numérico
+    if (!is_numeric($fab['ativos'] ?? null) && !is_numeric($fab['inativos'] ?? null) && !is_numeric($fab['desligados'] ?? null)) {
+        return '';
+    }
     return '<div class="painel-master-status">'
         . '<span class="pm-ativos">🟢 ' . __('Ativos', 'painel-master') . ': ' . esc_html($fab['ativos'] ?? '-') . '</span>'
         . '<span class="pm-inativos">🟡 ' . __('Inativos', 'painel-master') . ': ' . esc_html($fab['inativos'] ?? '-') . '</span>'
@@ -95,7 +109,32 @@ function painel_master_render_card($fab) {
     $html = '<div class="painel-master-card">';
     $html .= '<h3>' . esc_html($fab['nome']) . '</h3>';
     $html .= '<div><strong>' . __('Revendedores', 'painel-master') . ':</strong> ' . esc_html($fab['revendedores'] ?? '-') . '</div>';
+    // Exibe produtos ativos, rascunho e total se existirem
+    if (isset($fab['produtos_ativos']) || isset($fab['produtos_rascunho']) || isset($fab['produtos_total'])) {
+        $html .= '<div class="pm-produtos-info">';
+        if (isset($fab['produtos_ativos'])) {
+            $html .= '<span style="margin-right:12px;">' . __('Produtos ativos', 'painel-master') . ': <b>' . intval($fab['produtos_ativos']) . '</b></span>';
+        }
+        if (isset($fab['produtos_rascunho'])) {
+            $html .= '<span style="margin-right:12px;">' . __('Rascunhos', 'painel-master') . ': <b>' . intval($fab['produtos_rascunho']) . '</b></span>';
+        }
+        if (isset($fab['produtos_total'])) {
+            $html .= '<span>' . __('Total de produtos', 'painel-master') . ': <b>' . intval($fab['produtos_total']) . '</b></span>';
+        }
+        $html .= '</div>';
+    }
     $html .= painel_master_render_status($fab);
+    // Exibe o último revendedor cadastrado
+    if (!empty($fab['ultimo_revendedor'])) {
+        $rev = $fab['ultimo_revendedor'];
+        $html .= '<div class="pm-ultimo-revendedor"><strong>' . __('Último revendedor cadastrado', 'painel-master') . ':</strong> ';
+        $html .= esc_html($rev['nome'] ?? '-') .
+            (!empty($rev['data_cadastro']) ? ' <span style="color:#888;">(' . esc_html($rev['data_cadastro']) . ')</span>' : '');
+        if (isset($rev['vendas'])) {
+            $html .= ' <span style="color:#888;">- ' . intval($rev['vendas']) . ' ' . __('vendas', 'painel-master') . '</span>';
+        }
+        $html .= '</div>';
+    }
     $html .= painel_master_render_produtos($fab['mais_vendidos'] ?? [], __('Mais vendidos', 'painel-master'));
     $html .= painel_master_render_produtos($fab['mais_acessados'] ?? [], __('Mais acessados', 'painel-master'));
     if (!empty($fab['erro'])) {

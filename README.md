@@ -6,14 +6,14 @@ Este plugin WordPress permite ao administrador master visualizar e gerenciar tod
 - `painel-master.php`: Arquivo principal do plugin.
 - `assets/`: Scripts e estilos do painel.
 - `includes/`: Funções auxiliares e integrações.
-- `templates/`: Templatep HTML/PHP para o painel.
+- `templates/`: Templates HTML/PHP para o painel.
 
 ## Funcionalidades
 - Cadastro de fábricas (URLs das lojas e tokens de acesso)
 - Consulta via REST API dos dados de cada loja/revendedor
 - Dashboard com:
   - Número de revendedores por fábrica
-  - Status dos revendedores (ativos, inativos, desligados)
+  - Produtos mais vendidos e mais acessados
   - Acompanhamento geral das operações
 
 ## Como funciona
@@ -27,8 +27,10 @@ Este plugin WordPress permite ao administrador master visualizar e gerenciar tod
 
 ## Instalação
 1. Faça upload da pasta do plugin para `wp-content/plugins/`.
-2. Ative o plugin no painel do WordPress.
-3. Acesse o menu "Painel Master" para cadastrar fábricas e visualizar o dashboard.
+2. **Atenção:** Certifique-se de que não existam duas pastas do plugin com nomes diferentes (ex: `Painel-Master-Fabrica` e `Painel-Master-Fabrica-1`).
+   - Mantenha apenas uma cópia do plugin na pasta de plugins para evitar erros de funções duplicadas.
+3. Ative o plugin no painel do WordPress.
+4. Acesse o menu "Painel Master" para cadastrar fábricas e visualizar o dashboard.
 
 ## Segurança
 - As integrações REST devem ser protegidas por token ou autenticação segura.
@@ -36,6 +38,7 @@ Este plugin WordPress permite ao administrador master visualizar e gerenciar tod
 ## Observações
 - Este plugin depende que o plugin dos lojistas/revendedores exponha uma API REST compatível.
 - O código é modular e pode ser expandido para relatórios, gráficos e integrações extras.
+- Caso queira exibir status de revendedores (ativos, inativos, desligados), a API das fábricas deve retornar esses campos.
 
 ---
 Desenvolvido por Andrei Moterle

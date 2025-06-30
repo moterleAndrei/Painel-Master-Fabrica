@@ -1,10 +1,13 @@
 // Painel Master Dashboard JS
 // Otimizado para acessibilidade, feedback visual e robustez
+window.initPainelMaster = function(){};
+
 (function(){
     function renderNotificacoes(dados){
         let html='';
         dados.forEach(fab=>{
-            if(fab.revendedores==0||fab.ativos==0){
+            // Só alerta se NÃO houver nenhum revendedor
+            if(fab.revendedores===0){
                 html+=`<div class='pm-error' role='alert' tabindex='0'>⚠️ ${PainelMasterI18n.atencaoSemRevendedores.replace('{nome}', `<b>${fab.nome}</b>`)}</div>`;
             }
             if(fab.erro){
@@ -22,7 +25,7 @@
         window.graficoVendasInstance=new Chart(ctx,{type:'bar',data:{labels:labels,datasets:[{label:PainelMasterI18n.graficoLabel,data:vendas,backgroundColor:'#4caf50'}]},options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}});
     }
 
-    function carregarDashboard(ordem='padrao'){
+    function carregarDashboard(ordem='padrao', fabrica='todas'){
         // Adiciona spinner de loading
         document.getElementById('painel-master-content').innerHTML = '<div class="pm-loading" role="status" aria-live="polite">Carregando...</div>';
         fetch(PainelMasterI18n.ajaxurl+'?action=painel_master_get_dados&nonce='+PainelMasterI18n.nonce)
@@ -46,8 +49,15 @@
                 let revendedores=parseInt(card.querySelector('div strong+text')?.textContent?.replace(/\D/g,'')||'0');
                 let ativos=parseInt(card.querySelector('.pm-ativos')?.textContent?.replace(/\D/g,'')||'0');
                 let erro=card.querySelector('.pm-erro')?.textContent||'';
-                return{nome,mais_vendidos,revendedores,ativos,erro};
+                return{nome,mais_vendidos,revendedores,ativos,erro,card};
             });
+            // Filtro por fábrica
+            if(fabrica && fabrica!=='todas'){
+                dadosFabrica = dadosFabrica.filter(f=>f.nome===fabrica);
+                // Remove cards não selecionados
+                temp.innerHTML = '';
+                dadosFabrica.forEach(f=>temp.appendChild(f.card));
+            }
             document.getElementById('painel-master-content').innerHTML=temp.innerHTML;
             renderNotificacoes(dadosFabrica);
             renderGraficoVendas(dadosFabrica);
@@ -57,6 +67,8 @@
         });
     }
 
+    // Torna a função global ANTES de qualquer chamada
+    window.initPainelMaster = initPainelMaster;
     function initPainelMaster() {
         // Adiciona canvas para gráfico
         let graficoDiv = document.createElement('div');
@@ -66,7 +78,13 @@
         let filtro = document.getElementById('painel-master-filtro');
         if (filtro) {
             filtro.addEventListener('change', function () {
-                carregarDashboard(this.value);
+                carregarDashboard(this.value, document.getElementById('painel-master-fabrica-select')?.value||'todas');
+            });
+        }
+        let fabricaSelect = document.getElementById('painel-master-fabrica-select');
+        if(fabricaSelect){
+            fabricaSelect.addEventListener('change', function(){
+                carregarDashboard(document.getElementById('painel-master-filtro')?.value||'padrao', this.value);
             });
         }
     }
@@ -85,3 +103,5 @@
         }
     });
 })();
+
+

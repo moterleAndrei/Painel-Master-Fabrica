@@ -2,7 +2,7 @@
 /*
 Plugin Name: Painel Master de Fábricas
 Description: Painel centralizado para controle e acompanhamento de todas as fábricas e revendedores.
-Version: 1.1.8
+Version: 1.2.1
 Author: Andrei Moterle
 */
 
@@ -47,18 +47,16 @@ add_action('admin_enqueue_scripts', function($hook) {
     }
 });
 
-/**
- * Exibe o dashboard principal
- */
-function painel_master_dashboard() {
-    include __DIR__ . '/templates/dashboard.php';
+// ================= ADMIN MENU =================
+if (!function_exists('painel_master_dashboard')) {
+    function painel_master_dashboard() {
+        include __DIR__ . '/templates/dashboard.php';
+    }
 }
-
-/**
- * Exibe a tela de fábricas
- */
-function painel_master_fabricas_page() {
-    include __DIR__ . '/templates/fabricas.php';
+if (!function_exists('painel_master_fabricas_page')) {
+    function painel_master_fabricas_page() {
+        include __DIR__ . '/templates/fabricas.php';
+    }
 }
 
 // ================= AJAX =================
