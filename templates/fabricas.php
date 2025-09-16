@@ -14,7 +14,8 @@
     $pagina = max(1, intval($_GET['fab_page'] ?? 1));
     $total_paginas = max(1, ceil($total / $por_pagina));
     $inicio = ($pagina - 1) * $por_pagina;
-    $fabricas_pagina = array_slice($fabricas, $inicio, $por_pagina);
+    // Preserve original keys so removal by index corresponds to stored option keys
+    $fabricas_pagina = array_slice($fabricas, $inicio, $por_pagina, true);
     ?>
     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" autocomplete="off" style="margin-bottom:32px;">
         <input type="hidden" name="action" value="painel_master_add_fabrica">
@@ -48,13 +49,13 @@
     <table class="widefat">
         <thead><tr><th><?php _e('Nome', 'painel-master'); ?></th><th><?php _e('URL', 'painel-master'); ?></th><th><?php _e('Token', 'painel-master'); ?></th><th><?php _e('Ações', 'painel-master'); ?></th></tr></thead>
         <tbody>
-        <?php foreach ($fabricas_pagina as $i => $fab): $real_i = $inicio + $i; ?>
+        <?php foreach ($fabricas_pagina as $real_i => $fab): ?>
             <tr>
                 <td><?php echo esc_html($fab['nome']); ?></td>
-                <td><?php echo esc_html($fab['url']); ?></td>
-                <td><?php echo esc_html($fab['token']); ?></td>
+                <td><a href="<?php echo esc_url($fab['url']); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html($fab['url']); ?></a></td>
+                <td><?php echo esc_html(function_exists('painel_master_mask_token') ? painel_master_mask_token($fab['token'] ?? '') : ($fab['token'] ?? '')); ?></td>
                 <td>
-                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline;">
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline;" class="painel-master-remover-form">
                         <input type="hidden" name="action" value="painel_master_remover_fabrica">
                         <?php wp_nonce_field('painel_master_fabricas_action', 'painel_master_fabricas_nonce'); ?>
                         <input type="hidden" name="remover_fabrica" value="<?php echo esc_attr($real_i); ?>">
@@ -80,25 +81,33 @@
     <?php endif; ?>
 </div>
 <?php
-// Mensagens de feedback
-if (isset($_GET['msg'])) {
-    if ($_GET['msg'] === 'ok') {
-        echo '<div class="pm-success updated"><p>' . __('Fábrica adicionada!', 'painel-master') . '</p></div>';
-    } elseif ($_GET['msg'] === 'removida') {
-        echo '<div class="pm-success updated"><p>' . __('Fábrica removida!', 'painel-master') . '</p></div>';
-    } elseif ($_GET['msg'] === 'campos') {
-        echo '<div class="pm-error error"><p>' . __('Preencha todos os campos.', 'painel-master') . '</p></div>';
-    } elseif ($_GET['msg'] === 'url') {
-        echo '<div class="pm-error error"><p>' . __('URL inválida.', 'painel-master') . '</p></div>';
-    } elseif ($_GET['msg'] === 'token') {
-        echo '<div class="pm-error error"><p>' . __('O token deve ter pelo menos 8 caracteres.', 'painel-master') . '</p></div>';
-    } elseif ($_GET['msg'] === 'duplicada') {
-        echo '<div class="pm-error error"><p>' . __('Já existe uma fábrica cadastrada com esta URL.', 'painel-master') . '</p></div>';
-    } elseif ($_GET['msg'] === 'erroremover') {
-        echo '<div class="pm-error error"><p>' . __('Erro ao remover fábrica.', 'painel-master') . '</p></div>';
-    } elseif ($_GET['msg'] === 'conexao') {
-        $erro = isset($_GET['erro_conexao']) ? urldecode($_GET['erro_conexao']) : __('Não foi possível conectar à API da fábrica. Verifique a URL e o token.', 'painel-master');
-        echo '<div class="pm-error error"><p>' . esc_html($erro) . '</p></div>';
+// Mensagens de feedback via transient + settings_errors
+$messages = get_transient('painel_master_admin_messages');
+if (!empty($messages) && is_array($messages)) {
+    foreach ($messages as $m) {
+        if (function_exists('add_settings_error')) {
+            add_settings_error('painel_master', $m['code'] ?? '', $m['message'] ?? '', $m['type'] ?? '');
+        }
     }
+    delete_transient('painel_master_admin_messages');
+}
+if (function_exists('settings_errors')) {
+    settings_errors('painel_master');
 }
 ?>
+<script>
+// Confirmação antes de remover uma fábrica
+;(function(){
+    document.addEventListener('DOMContentLoaded', function(){
+        var forms = document.querySelectorAll('.painel-master-remover-form');
+        forms.forEach(function(f){
+            f.addEventListener('submit', function(e){
+                var ok = confirm('Tem certeza que deseja remover esta fábrica? Clique "OK" para Sim ou "Cancelar" para Não.');
+                if (!ok) {
+                    e.preventDefault();
+                }
+            });
+        });
+    });
+})();
+</script>

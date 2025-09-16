@@ -6,15 +6,17 @@ window.initPainelMaster = function(){};
     function renderNotificacoes(dados){
         let html='';
         dados.forEach(fab=>{
-            // Só alerta se NÃO houver nenhum revendedor
-            if(fab.revendedores===0){
-                html+=`<div class='pm-error' role='alert' tabindex='0'>⚠️ ${PainelMasterI18n.atencaoSemRevendedores.replace('{nome}', `<b>${fab.nome}</b>`)}</div>`;
+            // Mostra erro de fábrica se existir
+            if (fab.erro) {
+                html += `<div class='pm-error' role='alert' tabindex='0'>❌ ${PainelMasterI18n.erroFabrica.replace('{nome}', `<b>${fab.nome}</b>`).replace('{erro}', fab.erro)}</div>`;
+                return;
             }
-            if(fab.erro){
-                html+=`<div class='pm-error' role='alert' tabindex='0'>❌ ${PainelMasterI18n.erroFabrica.replace('{nome}', `<b>${fab.nome}</b>`).replace('{erro}', fab.erro)}</div>`;
+            // Só alerta se NÃO houver nenhum revendedor nem ativos
+            if ((typeof fab.revendedores === 'number' && fab.revendedores === 0) && (typeof fab.ativos === 'number' && fab.ativos === 0)){
+                html += `<div class='pm-error' role='alert' tabindex='0'>⚠️ ${PainelMasterI18n.atencaoSemRevendedores.replace('{nome}', `<b>${fab.nome}</b>`)}</div>`;
             }
         });
-        document.getElementById('painel-master-notificacoes').innerHTML=html;
+        document.getElementById('painel-master-notificacoes').innerHTML = html;
     }
 
     function renderGraficoVendas(dados){
@@ -35,21 +37,24 @@ window.initPainelMaster = function(){};
             temp.innerHTML=data.data.html;
             let cards=temp.querySelectorAll('.painel-master-card');
             let dadosFabrica=Array.from(cards).map(card=>{
-                let nome=card.querySelector('h3').innerText;
-                let mais_vendidos=[];
+                let nome = card.querySelector('h3')?.innerText || '';
+                let mais_vendidos = [];
                 card.querySelectorAll('.pm-produtos ul').forEach((ul,idx)=>{
-                    let arr=[];
+                    let arr = [];
                     ul.querySelectorAll('li').forEach(li=>{
-                        let nome=li.querySelector('a')?.innerText||'';
-                        let valor=parseInt(li.textContent.replace(/\D/g,''))||0;
+                        let nome = li.querySelector('a')?.innerText || '';
+                        let valor = parseInt(li.textContent.replace(/\D/g,'')) || 0;
                         arr.push({nome,valor});
                     });
-                    if(idx===0)mais_vendidos=arr;
+                    if (idx === 0) mais_vendidos = arr;
                 });
-                let revendedores=parseInt(card.querySelector('div strong+text')?.textContent?.replace(/\D/g,'')||'0');
-                let ativos=parseInt(card.querySelector('.pm-ativos')?.textContent?.replace(/\D/g,'')||'0');
-                let erro=card.querySelector('.pm-erro')?.textContent||'';
-                return{nome,mais_vendidos,revendedores,ativos,erro,card};
+                // Ler dados diretamente dos atributos data-* adicionados no PHP
+                let revendedores = parseInt(card.getAttribute('data-revendedores') || '0', 10) || 0;
+                let ativos = parseInt(card.getAttribute('data-ativos') || '0', 10) || 0;
+                let inativos = parseInt(card.getAttribute('data-inativos') || '0', 10) || 0;
+                let desligados = parseInt(card.getAttribute('data-desligados') || '0', 10) || 0;
+                let erro = (card.getAttribute('data-erro') || '').trim();
+                return {nome,mais_vendidos,revendedores,ativos,inativos,desligados,erro,card};
             });
             // Filtro por fábrica
             if(fabrica && fabrica!=='todas'){

@@ -106,7 +106,17 @@ function painel_master_render_status($fab) {
  * Renderiza um card de fábrica
  */
 function painel_master_render_card($fab) {
-    $html = '<div class="painel-master-card">';
+    $revendedores_attr = is_numeric($fab['revendedores'] ?? null) ? intval($fab['revendedores']) : 0;
+    $ativos_attr = is_numeric($fab['ativos'] ?? null) ? intval($fab['ativos']) : 0;
+    $inativos_attr = is_numeric($fab['inativos'] ?? null) ? intval($fab['inativos']) : 0;
+    $desligados_attr = is_numeric($fab['desligados'] ?? null) ? intval($fab['desligados']) : 0;
+    $erro_attr = isset($fab['erro']) ? $fab['erro'] : '';
+    $attrs = 'data-revendedores="' . esc_attr($revendedores_attr) . '"'
+        . ' data-ativos="' . esc_attr($ativos_attr) . '"'
+        . ' data-inativos="' . esc_attr($inativos_attr) . '"'
+        . ' data-desligados="' . esc_attr($desligados_attr) . '"'
+        . ' data-erro="' . esc_attr($erro_attr) . '"';
+    $html = '<div class="painel-master-card" ' . $attrs . '>';
     $html .= '<h3>' . esc_html($fab['nome']) . '</h3>';
     $html .= '<div><strong>' . __('Revendedores', 'painel-master') . ':</strong> ' . esc_html($fab['revendedores'] ?? '-') . '</div>';
     // Exibe produtos ativos, rascunho e total se existirem

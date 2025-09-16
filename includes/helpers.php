@@ -22,3 +22,39 @@ function painel_master_salvar_fabricas($fabricas) {
         error_log('[Painel Master] Fábricas atualizadas por ' . $user . ' em ' . date('Y-m-d H:i:s'));
     }
 }
+
+/**
+ * Normaliza uma URL para comparação (remove barra final e espaços).
+ * Não altera o esquema (exceto para comparação mais estável) nem decodifica a parte do caminho.
+ * @param string $url
+ * @return string
+ */
+function painel_master_normalizar_url($url) {
+    $u = trim($url);
+    // Remove query e fragmentos para comparar apenas a base
+    if (function_exists('wp_parse_url')) {
+        $parts = wp_parse_url($u);
+    } else {
+        $parts = parse_url($u);
+    }
+    if ($parts === false || empty($parts['host'])) return rtrim(strtolower($u), '/');
+    $scheme = isset($parts['scheme']) ? strtolower($parts['scheme']) : '';
+    $host = isset($parts['host']) ? strtolower($parts['host']) : '';
+    $path = isset($parts['path']) ? rtrim($parts['path'], '/') : '';
+    $normalized = $scheme . '://' . $host . $path;
+    return rtrim($normalized, '/');
+}
+
+/**
+ * Mascara um token sensível para exibição parcial.
+ * Exibe os primeiros $visible caracteres e substitui o restante por asteriscos.
+ * @param string $token
+ * @param int $visible
+ * @return string
+ */
+function painel_master_mask_token($token, $visible = 4) {
+    $t = (string) $token;
+    $len = strlen($t);
+    if ($len <= $visible) return str_repeat('*', $len);
+    return substr($t, 0, $visible) . str_repeat('*', max(0, $len - $visible));
+}
