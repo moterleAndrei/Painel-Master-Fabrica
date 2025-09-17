@@ -1,6 +1,127 @@
 <?php
 // Funções para integração com as fábricas/revendedores
 
+// ================= BANCO DE DADOS =================
+/**
+ * Cria a tabela de dados das fábricas se não existir
+ */
+function painel_master_criar_tabela_fabricas() {
+    global $wpdb;
+    $charset_collate = $wpdb->get_charset_collate();
+    $tabela = $wpdb->prefix . 'painel_master_fabricas_dados';
+
+    $sql = "CREATE TABLE IF NOT EXISTS $tabela (
+        id bigint(20) NOT NULL AUTO_INCREMENT,
+        fabrica_id varchar(32) NOT NULL,
+        dados longtext NOT NULL,
+        ultima_atualizacao datetime DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id),
+        UNIQUE KEY fabrica_id (fabrica_id)
+    ) $charset_collate;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+}
+register_activation_hook(__FILE__, 'painel_master_criar_tabela_fabricas');
+
+// Registra o evento cron na ativação do plugin
+register_activation_hook(__FILE__, 'painel_master_agendar_atualizacao');
+register_deactivation_hook(__FILE__, 'painel_master_desagendar_atualizacao');
+
+function painel_master_agendar_atualizacao() {
+    if (!wp_next_scheduled('painel_master_atualizar_fabricas_hook')) {
+        wp_schedule_event(time(), 'daily', 'painel_master_atualizar_fabricas_hook');
+    }
+}
+
+function painel_master_desagendar_atualizacao() {
+    $timestamp = wp_next_scheduled('painel_master_atualizar_fabricas_hook');
+    if ($timestamp) {
+        wp_unschedule_event($timestamp, 'painel_master_atualizar_fabricas_hook');
+    }
+}
+
+// Função que será executada pelo cron
+function painel_master_atualizar_todas_fabricas() {
+    $fabricas = painel_master_get_fabricas();
+    foreach ($fabricas as $fabrica) {
+        $fabrica_id = md5($fabrica['url'] . ($fabrica['token'] ?? ''));
+        delete_transient('force_update_fabrica_' . $fabrica_id);
+        painel_master_buscar_info_fabrica($fabrica); // Força atualização
+    }
+}
+add_action('painel_master_atualizar_fabricas_hook', 'painel_master_atualizar_todas_fabricas');
+
+/**
+ * Salva os dados da fábrica no banco
+ */
+function painel_master_salvar_dados_fabrica($fabrica_id, $dados) {
+    global $wpdb;
+    $tabela = $wpdb->prefix . 'painel_master_fabricas_dados';
+    
+    $dados_json = wp_json_encode($dados);
+    
+    // Define o fuso horário para São Paulo
+    date_default_timezone_set('America/Sao_Paulo');
+    
+    // Cria um objeto DateTime com o timezone correto
+    $dt = new DateTime('now', new DateTimeZone('America/Sao_Paulo'));
+    
+    return $wpdb->replace(
+        $tabela,
+        array(
+            'fabrica_id' => $fabrica_id,
+            'dados' => $dados_json,
+            'ultima_atualizacao' => $dt->format('Y-m-d H:i:s') // Usa a hora de São Paulo
+        ),
+        array('%s', '%s', '%s')
+    );
+}
+
+/**
+ * Busca os dados da fábrica do banco
+ */
+function painel_master_get_dados_fabrica($fabrica_id) {
+    global $wpdb;
+    $tabela = $wpdb->prefix . 'painel_master_fabricas_dados';
+    
+    $resultado = $wpdb->get_var($wpdb->prepare(
+        "SELECT dados FROM $tabela WHERE fabrica_id = %s",
+        $fabrica_id
+    ));
+    
+    if ($resultado === null) {
+        return false;
+    }
+    
+    return json_decode($resultado, true);
+}
+
+/**
+ * Verifica se os dados da fábrica precisam ser atualizados
+ */
+function painel_master_dados_fabrica_expirados($fabrica_id) {
+    global $wpdb;
+    $tabela = $wpdb->prefix . 'painel_master_fabricas_dados';
+    
+    $ultima_atualizacao = $wpdb->get_var($wpdb->prepare(
+        "SELECT ultima_atualizacao FROM $tabela WHERE fabrica_id = %s",
+        $fabrica_id
+    ));
+    
+    if ($ultima_atualizacao === null) {
+        return true;
+    }
+    
+    // Considera expirado se a última atualização foi há mais de 24 horas
+    $expirado = strtotime($ultima_atualizacao) < (time() - (24 * 60 * 60));
+    
+    // Ou se foi forçada uma atualização via transient
+    $force_update = get_transient('force_update_fabrica_' . $fabrica_id);
+    
+    return $expirado || $force_update;
+}
+
 // ================= LÓGICA/API =================
 /**
  * Busca informações de uma fábrica via REST API protegida por token.
@@ -14,12 +135,19 @@ function painel_master_buscar_info_fabrica($fabrica) {
     if (stripos($fabrica['url'], 'https://') !== 0) {
         return painel_master_erro_padrao(__('URL não segura (HTTPS obrigatório)', 'painel-master'));
     }
-    $cache_key = 'painel_master_fabrica_' . md5($fabrica['url'] . ($fabrica['token'] ?? ''));
-    $cached = get_transient($cache_key);
-    if ($cached !== false) {
-        return $cached;
+
+    $fabrica_id = md5($fabrica['url'] . ($fabrica['token'] ?? ''));
+    
+    // Verifica se tem dados no banco e se não estão expirados
+    if (!painel_master_dados_fabrica_expirados($fabrica_id)) {
+        $dados_banco = painel_master_get_dados_fabrica($fabrica_id);
+        if ($dados_banco !== false) {
+            return $dados_banco;
+        }
     }
-    $url = trailingslashit($fabrica['url']) . 'wp-json/fabrica/v1/status';
+    
+    // Se não tem dados ou estão expirados, busca da API
+    $url = trailingslashit($fabrica['url']) . 'wp-json/sincronizador-wc/v1/master/fabrica-status';
     $args = [
         'headers' => [
             'Authorization' => 'Bearer ' . ($fabrica['token'] ?? ''),
@@ -41,18 +169,128 @@ function painel_master_buscar_info_fabrica($fabrica) {
         set_transient($cache_key, $ret, 60);
         return $ret;
     }
-    // Corrige campo 'vendas' para 'valor' em mais_vendidos e mais_acessados
-    foreach (['mais_vendidos', 'mais_acessados'] as $key) {
-        if (isset($body[$key]) && is_array($body[$key])) {
-            foreach ($body[$key] as $i => $prod) {
-                if (isset($prod['vendas'])) {
-                    $body[$key][$i]['valor'] = $prod['vendas'];
+    
+    // Log para debug
+    error_log('Resposta da API de produtos: ' . print_r($body['revendedores'][0]['estatisticas_produtos'] ?? [], true));
+
+    // Processa os dados recebidos da API
+    $total_vendas_mes = 0;
+    $total_pedidos_mes = 0;
+    $produtos_vendidos_mes = 0;
+    $produtos_ativos = 0;
+    $produtos_rascunho = 0;
+    $produtos_total = 0;
+    $status_vendas = [
+        'concluidos' => 0,
+        'pendentes' => 0,
+        'processando' => 0,
+        'cancelados' => 0,
+        'reembolsados' => 0
+    ];
+    $taxa_conversao = 0;
+
+    // Soma as estatísticas de todos os revendedores
+    if (!empty($body['revendedores'])) {
+        foreach ($body['revendedores'] as $revendedor) {
+            if (isset($revendedor['estatisticas_gerais'])) {
+                // Vendas e Pedidos
+                $total_vendas_mes = floatval($revendedor['estatisticas_gerais']['total_vendas_mes'] ?? 0);
+                $total_pedidos_mes = intval($revendedor['estatisticas_gerais']['total_pedidos_mes'] ?? 0);
+                $produtos_vendidos_mes = intval($revendedor['estatisticas_gerais']['produtos_vendidos_mes'] ?? 0);
+
+                // Taxa de conversão
+                $taxa_conversao = floatval(str_replace(['%', ','], ['', '.'], $revendedor['estatisticas_gerais']['taxa_conversao'] ?? '0'));
+                
+                // Status das vendas (mantendo os nomes corretos do WooCommerce)
+                $status = $revendedor['estatisticas_gerais']['status_vendas'] ?? [];
+                $status_vendas['concluidos'] = intval($status['vendas_concluidas'] ?? 0);
+                $status_vendas['pendentes'] = intval($status['vendas_pendentes'] ?? 0);
+                $status_vendas['processando'] = intval($status['vendas_processando'] ?? 0);
+                $status_vendas['cancelados'] = intval($status['vendas_canceladas'] ?? 0);
+                $status_vendas['reembolsados'] = intval($status['vendas_reembolsadas'] ?? 0);
+
+                // Debug: log do revendedor para ver a estrutura
+                error_log('Estrutura do revendedor: ' . print_r($revendedor, true));
+                
+                // Produtos e estatísticas gerais - tenta encontrar o total de produtos
+                if (isset($revendedor['total_produtos'])) {
+                    $produtos_total = intval($revendedor['total_produtos']);
+                } elseif (isset($revendedor['produtos_ativos'])) {
+                    $produtos_total = intval($revendedor['produtos_ativos']);
+                } elseif (isset($revendedor['estatisticas_produtos']['ativos'])) {
+                    $produtos_total = intval($revendedor['estatisticas_produtos']['ativos']);
+                } elseif (isset($revendedor['produtos_sincronizados'])) {
+                    $produtos_total = intval($revendedor['produtos_sincronizados']);
                 }
+                
+                // Se encontrou algum valor, podemos parar pois todos têm o mesmo total
+                if ($produtos_total > 0) {
+                    break;
+                }
+                // Se já encontramos algum revendedor, podemos parar aqui pois todos têm o mesmo total
+                break;
             }
         }
+
+        // Taxa de conversão média (convertendo string "X.X%" para número)
+        $taxas = array_map(function($rev) {
+            return floatval(str_replace(['%', ','], ['', '.'], $rev['estatisticas_gerais']['taxa_conversao'] ?? '0'));
+        }, $body['revendedores']);
+        $taxa_conversao = !empty($taxas) ? array_sum($taxas) / count($taxas) : 0;
     }
-    set_transient($cache_key, $body, 300);
-    return $body;
+
+    // Processa os top 5 produtos mais vendidos do geral
+    $todos_produtos = [];
+    if (!empty($body['top_5_produtos_geral'])) {
+        foreach ($body['top_5_produtos_geral'] as $produto) {
+            $key = $produto['sku'];
+            // Constrói a URL do produto usando a URL do lojista associado
+            $produto_url = '';
+            if (!empty($body['revendedores'])) {
+                foreach ($body['revendedores'] as $rev) {
+                    if ($rev['nome'] === $produto['lojista']) {
+                        $produto_url = trailingslashit($rev['url']) . '?p=' . ($produto['id'] ?? '');
+                        break;
+                    }
+                }
+            }
+            $todos_produtos[$key] = [
+                'nome' => strip_tags($produto['nome']),
+                'vendas' => intval($produto['quantidade_vendida']),
+                'receita' => floatval($produto['receita_total']),
+                'url' => $produto_url
+            ];
+        }
+    }
+
+    // Ordena os produtos por vendas e pega os top 5
+    uasort($todos_produtos, function($a, $b) {
+        return $b['vendas'] <=> $a['vendas'];
+    });
+    $mais_vendidos = array_slice($todos_produtos, 0, 5);
+
+    $dados_processados = [
+        'nome' => $body['fabrica']['nome'] ?? '',
+        'url' => $fabrica['url'] ?? '',
+        'status' => $body['fabrica']['status'] ?? '',
+        'revendedores' => $body['revendedores'] ?? [],
+        'estatisticas_gerais' => [
+            'total_vendas_mes' => $total_vendas_mes,
+            'total_pedidos_mes' => $total_pedidos_mes,
+            'total_vendas_historico' => floatval($body['revendedores'][0]['estatisticas_gerais']['total_vendas_historico'] ?? 0),
+            'total_pedidos_historico' => intval($body['revendedores'][0]['estatisticas_gerais']['total_pedidos_historico'] ?? 0),
+            'produtos_vendidos_mes' => $produtos_vendidos_mes,
+            'taxa_conversao' => $taxa_conversao,
+            'cliente_fidelidade' => floatval($body['revendedores'][0]['estatisticas_gerais']['cliente_fidelidade'] ?? 0) . '%',
+            'status_vendas' => $status_vendas
+        ],
+        'mais_vendidos' => array_values($mais_vendidos),
+        'produtos_total' => intval($body['estatisticas']['total_produtos_sincronizados'] ?? 0)
+    ];
+
+    // Salva no banco de dados
+    painel_master_salvar_dados_fabrica($fabrica_id, $dados_processados);
+    return $dados_processados;
 }
 
 /**
@@ -106,31 +344,93 @@ function painel_master_render_status($fab) {
  * Renderiza um card de fábrica
  */
 function painel_master_render_card($fab) {
-    $revendedores_attr = is_numeric($fab['revendedores'] ?? null) ? intval($fab['revendedores']) : 0;
-    $ativos_attr = is_numeric($fab['ativos'] ?? null) ? intval($fab['ativos']) : 0;
-    $inativos_attr = is_numeric($fab['inativos'] ?? null) ? intval($fab['inativos']) : 0;
-    $desligados_attr = is_numeric($fab['desligados'] ?? null) ? intval($fab['desligados']) : 0;
-    $erro_attr = isset($fab['erro']) ? $fab['erro'] : '';
-    $attrs = 'data-revendedores="' . esc_attr($revendedores_attr) . '"'
-        . ' data-ativos="' . esc_attr($ativos_attr) . '"'
-        . ' data-inativos="' . esc_attr($inativos_attr) . '"'
-        . ' data-desligados="' . esc_attr($desligados_attr) . '"'
-        . ' data-erro="' . esc_attr($erro_attr) . '"';
-    $html = '<div class="painel-master-card" ' . $attrs . '>';
-    $html .= '<h3>' . esc_html($fab['nome']) . '</h3>';
-    $html .= '<div><strong>' . __('Revendedores', 'painel-master') . ':</strong> ' . esc_html($fab['revendedores'] ?? '-') . '</div>';
-    // Exibe produtos ativos, rascunho e total se existirem
-    if (isset($fab['produtos_ativos']) || isset($fab['produtos_rascunho']) || isset($fab['produtos_total'])) {
+    $revendedores_count = is_array($fab['revendedores']) ? count($fab['revendedores']) : 0;
+    $html = '<div class="painel-master-card" style="padding: 20px; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">';
+    
+    // Cabeçalho da fábrica
+    $html .= '<div style="margin: 0 0 15px;">';
+    $html .= '<h3 style="margin: 0 0 5px; color: #1e1e1e; font-size: 1.5em;">' . esc_html($fab['nome']) . '</h3>';
+    $html .= '<div style="display: flex; align-items: center; gap: 10px;">';
+    $html .= '<a href="' . esc_url($fab['url']) . '" target="_blank" rel="noopener noreferrer" style="color: #2271b1; text-decoration: none;">' . esc_html($fab['url']) . '</a>';
+    if (isset($fab['status'])) {
+        $status_color = $fab['status'] === 'ativo' ? '#00a32a' : '#d63638';
+        $html .= '<span style="color: ' . $status_color . '; font-weight: 500;">●&nbsp;' . ucfirst($fab['status']) . '</span>';
+    }
+    $html .= '</div>';
+    $html .= '</div>';
+    
+    // Grid com informações principais
+    $html .= '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin-bottom: 20px;">';
+    
+    // Coluna 1: Informações Gerais
+    $html .= '<div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">';
+    $html .= '<h4 style="margin: 0 0 10px; color: #2271b1;">Informações Gerais</h4>';
+    $html .= '<p style="margin: 5px 0;"><strong>Total de Revendedores:</strong> ' . $revendedores_count . '</p>';
+    $html .= '<p style="margin: 5px 0;"><strong>Total de Produtos Sincronizados:</strong> ' . intval($fab['produtos_total'] ?? 0) . '</p>';
+    $html .= '</div>';
+    
+    // Coluna 2: Estatísticas de Vendas
+    $html .= '<div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">';
+    $html .= '<h4 style="margin: 0 0 10px; color: #2271b1;">Estatísticas de Vendas</h4>';
+    $html .= '<p style="margin: 5px 0;"><strong>Vendas do Mês:</strong> R$ ' . number_format($fab['estatisticas_gerais']['total_vendas_mes'] ?? 0, 2, ',', '.') . '</p>';
+    $html .= '<p style="margin: 5px 0;"><strong>Pedidos do Mês:</strong> ' . intval($fab['estatisticas_gerais']['total_pedidos_mes'] ?? 0) . '</p>';
+    $html .= '<p style="margin: 5px 0;"><strong>Produtos Vendidos:</strong> ' . intval($fab['estatisticas_gerais']['produtos_vendidos_mes'] ?? 0) . '</p>';
+    $html .= '<p style="margin: 5px 0;"><strong>Taxa de Conversão:</strong> ' . number_format($fab['estatisticas_gerais']['taxa_conversao'] ?? 0, 1) . '%</p>';
+    $html .= '</div>';
+
+    // Coluna 3: Status dos Pedidos
+    $html .= '<div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">';
+    $html .= '<h4 style="margin: 0 0 10px; color: #2271b1;">Status dos Pedidos</h4>';
+    $html .= '<p style="margin: 5px 0;"><span style="color: #00a32a;">●</span> <strong>Concluídos:</strong> ' . intval($fab['estatisticas_gerais']['status_vendas']['concluidos'] ?? 0) . '</p>';
+    $html .= '<p style="margin: 5px 0;"><span style="color: #dba617;">●</span> <strong>Pendentes:</strong> ' . intval($fab['estatisticas_gerais']['status_vendas']['pendentes'] ?? 0) . '</p>';
+    $html .= '<p style="margin: 5px 0;"><span style="color: #0073aa;">●</span> <strong>Processando:</strong> ' . intval($fab['estatisticas_gerais']['status_vendas']['processando'] ?? 0) . '</p>';
+    $html .= '<p style="margin: 5px 0;"><span style="color: #d63638;">●</span> <strong>Cancelados:</strong> ' . intval($fab['estatisticas_gerais']['status_vendas']['cancelados'] ?? 0) . '</p>';
+    if (isset($fab['estatisticas_gerais']['status_vendas']['reembolsados']) && $fab['estatisticas_gerais']['status_vendas']['reembolsados'] > 0) {
+        $html .= '<p style="margin: 5px 0;"><span style="color: #674ea7;">●</span> <strong>Reembolsados:</strong> ' . intval($fab['estatisticas_gerais']['status_vendas']['reembolsados']) . '</p>';
+    }
+    $html .= '</div>';
+    $html .= '</div>';  // Fim do grid
+    
+    // Produtos Mais Vendidos
+    if (!empty($fab['mais_vendidos'])) {
+        $html .= '<div style="background: #f8f9fa; padding: 15px; border-radius: 6px; margin-top: 15px;">';
+        $html .= '<h4 style="margin: 0 0 10px; color: #2271b1;">Top 5 Produtos Mais Vendidos</h4>';
+        $html .= '<ul style="margin: 0; padding-left: 20px;">';
+        foreach ($fab['mais_vendidos'] as $produto) {
+            $html .= '<li style="margin: 5px 0;">';
+            $html .= '<a href="' . esc_url($produto['url']) . '" target="_blank" style="color: #2271b1; text-decoration: none;">' . 
+                    esc_html($produto['nome']) . '</a> - ' .
+                    '<strong>' . intval($produto['vendas']) . ' vendas</strong>';
+            $html .= '</li>';
+        }
+        $html .= '</ul>';
+        $html .= '</div>';
+    }
+    
+    // Últimos Revendedores
+    if (!empty($fab['revendedores'])) {
+        $html .= '<div style="background: #f8f9fa; padding: 15px; border-radius: 6px; margin-top: 15px;">';
+        $html .= '<h4 style="margin: 0 0 10px; color: #2271b1;">Últimos Revendedores</h4>';
+        $html .= '<ul style="margin: 0; padding-left: 20px;">';
+        $revendedores = array_slice($fab['revendedores'], 0, 5); // Mostra apenas os 5 primeiros
+        foreach ($revendedores as $rev) {
+            $html .= '<li style="margin: 5px 0;">';
+            $html .= '<strong>' . esc_html($rev['nome']) . '</strong>';
+            if (!empty($rev['data_cadastro'])) {
+                $html .= ' <span style="color: #666;">(' . esc_html($rev['data_cadastro']) . ')</span>';
+            }
+            if (isset($rev['vendas'])) {
+                $html .= ' - ' . intval($rev['vendas']) . ' vendas';
+            }
+            $html .= '</li>';
+        }
+        $html .= '</ul>';
+        $html .= '</div>';
+    }
+    // Exibe o total de produtos sincronizados
+    if (isset($fab['produtos_total'])) {
         $html .= '<div class="pm-produtos-info">';
-        if (isset($fab['produtos_ativos'])) {
-            $html .= '<span style="margin-right:12px;">' . __('Produtos ativos', 'painel-master') . ': <b>' . intval($fab['produtos_ativos']) . '</b></span>';
-        }
-        if (isset($fab['produtos_rascunho'])) {
-            $html .= '<span style="margin-right:12px;">' . __('Rascunhos', 'painel-master') . ': <b>' . intval($fab['produtos_rascunho']) . '</b></span>';
-        }
-        if (isset($fab['produtos_total'])) {
-            $html .= '<span>' . __('Total de produtos', 'painel-master') . ': <b>' . intval($fab['produtos_total']) . '</b></span>';
-        }
+        $html .= '<span>' . __('Total de produtos sincronizados', 'painel-master') . ': <b>' . intval($fab['produtos_total']) . '</b></span>';
         $html .= '</div>';
     }
     $html .= painel_master_render_status($fab);
@@ -198,3 +498,43 @@ function painel_master_gerar_dashboard_html() {
     $html[] = '</div>';
     return implode("\n", $html);
 }
+
+/**
+ * Limpa o cache de todas as fábricas
+ */
+function painel_master_limpar_cache_fabricas() {
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+
+    if (!isset($_POST['painel_master_limpar_cache_nonce']) || !wp_verify_nonce($_POST['painel_master_limpar_cache_nonce'], 'painel_master_limpar_cache_action')) {
+        return;
+    }
+
+    global $wpdb;
+    $fabricas = painel_master_get_fabricas();
+    
+    // Limpa a tabela de dados das fábricas
+    $tabela = $wpdb->prefix . 'painel_master_fabricas_dados';
+    $wpdb->query("TRUNCATE TABLE $tabela");
+    
+    // Para cada fábrica, marca para forçar atualização
+    foreach ($fabricas as $fabrica) {
+        $fabrica_id = md5($fabrica['url'] . ($fabrica['token'] ?? ''));
+        set_transient('force_update_fabrica_' . $fabrica_id, true, 60);
+        painel_master_buscar_info_fabrica($fabrica); // Força busca imediata
+    }
+
+    // Adiciona mensagem de sucesso
+    $mensagens = get_transient('painel_master_admin_messages') ?: [];
+    $mensagens[] = [
+        'type' => 'success',
+        'message' => __('Cache das fábricas limpo e dados atualizados com sucesso!', 'painel-master')
+    ];
+    set_transient('painel_master_admin_messages', $mensagens, 30);
+
+    // Redireciona de volta
+    wp_safe_redirect(wp_get_referer() ?: admin_url('admin.php?page=painel-master-fabricas'));
+    exit;
+}
+add_action('admin_post_painel_master_limpar_cache', 'painel_master_limpar_cache_fabricas');

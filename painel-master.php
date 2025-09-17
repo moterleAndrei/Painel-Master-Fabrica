@@ -10,6 +10,34 @@ Author: Andrei Moterle
 if (!defined('ABSPATH')) exit;
 
 require_once __DIR__ . '/includes/helpers.php';
+require_once __DIR__ . '/includes/fabricas.php';
+
+// Registra a função de ativação para criar a tabela
+register_activation_hook(__FILE__, 'painel_master_plugin_activate');
+
+function painel_master_plugin_activate() {
+    // Cria a tabela de dados das fábricas
+    global $wpdb;
+    $charset_collate = $wpdb->get_charset_collate();
+    $tabela = $wpdb->prefix . 'painel_master_fabricas_dados';
+
+    $sql = "CREATE TABLE IF NOT EXISTS $tabela (
+        id bigint(20) NOT NULL AUTO_INCREMENT,
+        fabrica_id varchar(32) NOT NULL,
+        dados longtext NOT NULL,
+        ultima_atualizacao datetime DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id),
+        UNIQUE KEY fabrica_id (fabrica_id)
+    ) $charset_collate;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+
+    // Registra o cron
+    if (!wp_next_scheduled('painel_master_atualizar_fabricas_hook')) {
+        wp_schedule_event(time(), 'daily', 'painel_master_atualizar_fabricas_hook');
+    }
+}
 
 // ================= ADMIN MENU =================
 add_action('admin_menu', function() {

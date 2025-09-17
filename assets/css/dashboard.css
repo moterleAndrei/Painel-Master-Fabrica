@@ -1,6 +1,6 @@
 /* Painel Master Dashboard Styles */
-.painel-master-cards { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 24px; }
-.painel-master-card { background: #fff; border: 1px solid #e2e2e2; border-radius: 10px; box-shadow: 0 2px 8px #0001; padding: 24px 20px; min-width: 260px; max-width: 340px; flex: 1 1 260px; }
+.painel-master-cards { display: grid;grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 24px; }
+.painel-master-card { background: #fff; border: 1px solid #e2e2e2; border-radius: 10px; box-shadow: 0 2px 8px #0001; padding: 24px 20px; max-width: 100%;}
 .painel-master-card h3 { margin-top: 0; font-size: 1.3em; }
 .painel-master-status { display: flex; gap: 12px; margin: 18px 0 0 0; }
 .painel-master-status span { display: flex; align-items: center; gap: 6px; font-weight: bold; padding: 6px 12px; border-radius: 6px; font-size: 1.1em; }
