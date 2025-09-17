@@ -110,8 +110,6 @@ require_once(ABSPATH . 'wp-admin/includes/template.php');
                         <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
                             <h4 style="margin: 0 0 10px; color: #2271b1;">Estatísticas Gerais</h4>
                             <?php
-                            // Debug para ver a estrutura completa dos dados
-                            error_log('Dados da fábrica: ' . print_r($dados_fabrica, true));
                             
                             // Extrai as estatísticas para facilitar o acesso
                             $stats = $dados_fabrica['estatisticas_gerais'] ?? [];
@@ -121,7 +119,7 @@ require_once(ABSPATH . 'wp-admin/includes/template.php');
                             <p style="margin: 5px 0;"><strong>Vendas Geral:</strong> R$ <?php echo number_format((float)($stats['total_vendas_historico'] ?? 0), 2, ',', '.'); ?></p>
                             <p style="margin: 5px 0;"><strong>Pedidos Do Mês:</strong> <?php echo number_format((int)($stats['total_pedidos_mes'] ?? 0), 0, ',', '.'); ?></p>
                             <p style="margin: 5px 0;"><strong>Pedidos Geral:</strong> <?php echo number_format((int)($stats['total_pedidos_historico'] ?? 0), 0, ',', '.'); ?></p>
-                            <p style="margin: 5px 0;"><strong>Taxa Conversão:</strong> <?php echo rtrim(rtrim($stats['taxa_conversao'] ?? '0.0%', '%'), '0') . '%'; ?></p>
+                            <p style="margin: 5px 0;"><strong>Taxa Conversão:</strong> <?php echo rtrim(rtrim($stats['taxa_conversao'] ), '0') . '%'; ?></p>
                             <p style="margin: 5px 0;"><strong>Taxa de Fidelidade:</strong> <?php echo rtrim(rtrim($stats['cliente_fidelidade'] ?? '0.0%', '%'), '0') . '%'; ?></p>
                         </div>
 

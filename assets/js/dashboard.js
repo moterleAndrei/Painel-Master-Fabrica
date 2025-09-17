@@ -11,10 +11,6 @@ window.initPainelMaster = function(){};
                 html += `<div class='pm-error' role='alert' tabindex='0'>❌ ${PainelMasterI18n.erroFabrica.replace('{nome}', `<b>${fab.nome}</b>`).replace('{erro}', fab.erro)}</div>`;
                 return;
             }
-            // Só alerta se NÃO houver nenhum revendedor nem ativos
-            if ((typeof fab.revendedores === 'number' && fab.revendedores === 0) && (typeof fab.ativos === 'number' && fab.ativos === 0)){
-                html += `<div class='pm-error' role='alert' tabindex='0'>⚠️ ${PainelMasterI18n.atencaoSemRevendedores.replace('{nome}', `<b>${fab.nome}</b>`)}</div>`;
-            }
         });
         document.getElementById('painel-master-notificacoes').innerHTML = html;
     }

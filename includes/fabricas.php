@@ -169,9 +169,6 @@ function painel_master_buscar_info_fabrica($fabrica) {
         set_transient($cache_key, $ret, 60);
         return $ret;
     }
-    
-    // Log para debug
-    error_log('Resposta da API de produtos: ' . print_r($body['revendedores'][0]['estatisticas_produtos'] ?? [], true));
 
     // Processa os dados recebidos da API
     $total_vendas_mes = 0;
@@ -208,9 +205,6 @@ function painel_master_buscar_info_fabrica($fabrica) {
                 $status_vendas['processando'] = intval($status['vendas_processando'] ?? 0);
                 $status_vendas['cancelados'] = intval($status['vendas_canceladas'] ?? 0);
                 $status_vendas['reembolsados'] = intval($status['vendas_reembolsadas'] ?? 0);
-
-                // Debug: log do revendedor para ver a estrutura
-                error_log('Estrutura do revendedor: ' . print_r($revendedor, true));
                 
                 // Produtos e estatísticas gerais - tenta encontrar o total de produtos
                 if (isset($revendedor['total_produtos'])) {
@@ -280,7 +274,7 @@ function painel_master_buscar_info_fabrica($fabrica) {
             'total_vendas_historico' => floatval($body['revendedores'][0]['estatisticas_gerais']['total_vendas_historico'] ?? 0),
             'total_pedidos_historico' => intval($body['revendedores'][0]['estatisticas_gerais']['total_pedidos_historico'] ?? 0),
             'produtos_vendidos_mes' => $produtos_vendidos_mes,
-            'taxa_conversao' => $taxa_conversao,
+            'taxa_conversao' => floatval($taxa_conversao),
             'cliente_fidelidade' => floatval($body['revendedores'][0]['estatisticas_gerais']['cliente_fidelidade'] ?? 0) . '%',
             'status_vendas' => $status_vendas
         ],
@@ -375,7 +369,7 @@ function painel_master_render_card($fab) {
     $html .= '<p style="margin: 5px 0;"><strong>Vendas do Mês:</strong> R$ ' . number_format($fab['estatisticas_gerais']['total_vendas_mes'] ?? 0, 2, ',', '.') . '</p>';
     $html .= '<p style="margin: 5px 0;"><strong>Pedidos do Mês:</strong> ' . intval($fab['estatisticas_gerais']['total_pedidos_mes'] ?? 0) . '</p>';
     $html .= '<p style="margin: 5px 0;"><strong>Produtos Vendidos:</strong> ' . intval($fab['estatisticas_gerais']['produtos_vendidos_mes'] ?? 0) . '</p>';
-    $html .= '<p style="margin: 5px 0;"><strong>Taxa de Conversão:</strong> ' . number_format($fab['estatisticas_gerais']['taxa_conversao'] ?? 0, 1) . '%</p>';
+    $html .= '<p style="margin: 5px 0;"><strong>Taxa de Conversão:</strong> ' . floatval($fab['estatisticas_gerais']['taxa_conversao'] ?? 0) . '%</p>';
     $html .= '</div>';
 
     // Coluna 3: Status dos Pedidos
@@ -434,6 +428,7 @@ function painel_master_render_card($fab) {
         $html .= '</div>';
     }
     $html .= painel_master_render_status($fab);
+    // Removidos os produtos pois já estão sendo mostrados acima no card
     // Exibe o último revendedor cadastrado
     if (!empty($fab['ultimo_revendedor'])) {
         $rev = $fab['ultimo_revendedor'];
@@ -467,24 +462,56 @@ function painel_master_gerar_dashboard_html() {
     $total_ativos = 0;
     $total_inativos = 0;
     $total_desligados = 0;
+    $fabricas_sem_revendedores = [];
+
     foreach ($fabricas as $fabrica) {
         $info = painel_master_buscar_info_fabrica($fabrica);
         $dados[] = array_merge(['nome' => $fabrica['nome']], $info);
-        if (isset($info['revendedores']) && is_numeric($info['revendedores'])) {
-            $total_revendedores += intval($info['revendedores']);
-        }
-        if (isset($info['ativos']) && is_numeric($info['ativos'])) {
-            $total_ativos += intval($info['ativos']);
-        }
-        if (isset($info['inativos']) && is_numeric($info['inativos'])) {
-            $total_inativos += intval($info['inativos']);
-        }
-        if (isset($info['desligados']) && is_numeric($info['desligados'])) {
-            $total_desligados += intval($info['desligados']);
+        
+        // Verifica revendedores
+        if (isset($info['revendedores']) && is_array($info['revendedores'])) {
+            $revendedores_count = count($info['revendedores']);
+            $total_revendedores += $revendedores_count;
+            
+            // Conta revendedores ativos/inativos
+            $revendedores_ativos = 0;
+            $revendedores_inativos = 0;
+            $revendedores_desligados = 0;
+            
+            foreach ($info['revendedores'] as $revendedor) {
+                // Um revendedor é considerado ativo se estiver marcado como ativo
+                if (isset($revendedor['ativo']) && $revendedor['ativo'] == 1) {
+                    $revendedores_ativos++;
+                } elseif (isset($revendedor['ativo']) && $revendedor['ativo'] == 0) {
+                    $revendedores_desligados++;
+                } else {
+                    $revendedores_inativos++;
+                }
+            }
+            
+            $total_ativos += $revendedores_ativos;
+            $total_inativos += $revendedores_inativos;
+            $total_desligados += $revendedores_desligados;
+            
+            // Se não houver revendedores ativos, adiciona à lista de avisos
+            if ($revendedores_ativos == 0) {
+                $fabricas_sem_revendedores[] = $fabrica['nome'];
+            }
         }
     }
+
     $html = [];
-    $html[] = '<link rel="stylesheet" href="' . plugin_dir_url(__DIR__) . 'assets/css/dashboard.min.css?ver=1.0" type="text/css" media="all">';
+    $html[] = '<link rel="stylesheet" href="' . plugin_dir_url(__DIR__) . 'assets/css/dashboard.css?ver=1.0" type="text/css" media="all">';
+    
+    // Exibe avisos de fábricas sem revendedores ativos
+    if (!empty($fabricas_sem_revendedores)) {
+        foreach ($fabricas_sem_revendedores as $nome_fabrica) {
+            $html[] = '<div class="notice notice-warning" style="margin: 10px 0;"><p>⚠️ ' . 
+                     sprintf(__('A fábrica %s não possui revendedores ativos!', 'painel-master'), 
+                     esc_html($nome_fabrica)) . '</p></div>';
+        }
+    }
+
     $html[] = '<div class="pm-totais">';
     $html[] = '<div class="pm-total-rev">' . __('Total de revendedores', 'painel-master') . ': ' . intval($total_revendedores) . '</div>';
     $html[] = '<div class="pm-total-ativos">' . __('Ativos', 'painel-master') . ': ' . intval($total_ativos) . '</div>';

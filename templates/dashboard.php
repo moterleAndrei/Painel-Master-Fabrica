@@ -34,4 +34,3 @@
     <div id="painel-master-notificacoes" aria-live="polite"></div>
     <div id="painel-master-content"><?php _e('Carregando dados...', 'painel-master'); ?></div>
 </div>
-<?php // O dashboard.js e Chart.js são enfileirados via wp_enqueue_script ?>
